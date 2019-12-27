@@ -7,11 +7,20 @@ use yew::format::Json;
 use yew::services::storage::{Area, StorageService};
 use yew::{html, Component, ComponentLink, Href, Html, Renderable, ShouldRender};
 
-const KEY: &'static str = "yew.todomvc.self";
+const KEY: &'static str = "yew.turtris.self";
+
+const BOARD_WIDTH: usize = 10;
+const BOARD_HEIGHT: usize = 24;
 
 pub struct App {
     storage: StorageService,
     state: State,
+}
+
+#[derive(Serialize, Deserialize, Clone)]
+struct Piece {
+    color: Color,
+    position: (usize, usize, usize, usize),
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -39,6 +48,7 @@ pub struct State {
     value: String,
     edit_value: String,
     board: Board,
+    current_piece: Option<Piece>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -71,6 +81,7 @@ impl Component for App {
             value: "".into(),
             edit_value: "".into(),
             board: init_board(),
+            current_piece: Some(init_piece()),
         };
         App { storage, state }
     }
@@ -84,11 +95,15 @@ impl Component for App {
     }
 }
 
-const BOARD_WIDTH: usize = 10;
-const BOARD_HEIGHT: usize = 24;
-
 fn init_board() -> Board {
     vec![Cell { color: None }; BOARD_WIDTH * BOARD_HEIGHT]
+}
+
+fn init_piece() -> Piece {
+    Piece {
+        color: Color::Yellow,
+        position: (4, 5, 14, 15),
+    }
 }
 
 impl Renderable<App> for App {
@@ -96,37 +111,54 @@ impl Renderable<App> for App {
         info!("rendered!");
         html! {
             <div class="app">
-              { view_board(&self.state.board) }
+              { view_state( &self.state) }
             </div>
         }
     }
 }
 
-fn view_board(board: &Board) -> Html<App> {
+fn view_state(state: &State) -> Html<App> {
     html! {
         <div class="board">
-          { for board.iter().enumerate().map(view_cell) }
+          { for state.board.iter().enumerate().map(|cell| view_cell(cell, state.current_piece.as_ref())) }
         </div>
     }
 }
 
-fn view_cell((index, cell): (usize, &Cell)) -> Html<App> {
+fn piece_has_index(piece: &Piece, index: usize) -> bool {
+    let (w, x, z, y) = piece.position;
+    index == w || index == x || index == z || index == y
+}
+
+fn view_cell((index, cell): (usize, &Cell), current_piece: Option<&Piece>) -> Html<App> {
+    let color = match current_piece {
+        Some(piece) if piece_has_index(piece, index) => color_to_hex(&piece.color),
+        _ => cell_color(cell),
+    };
+
     html! {
-      <div class="cell" style={ format!("background-color: {}", cell_color(cell)) }>
+      <div class="cell" style={ format!("background-color: {}", color) }>
+        <p>{ index }</p>
       </div>
     }
 }
 
-fn cell_color(cell: &Cell) -> &str {
+fn cell_color(cell: &Cell) -> String {
     match &cell.color {
-        Some(Color::Turquoise) => "#40e0d0",
-        Some(Color::Blue) => "#4169e1",
-        Some(Color::Orange) => "#ffa500",
-        Some(Color::Yellow) => "#ffff00",
-        Some(Color::Green) => " #00FF00",
-        Some(Color::Purple) => "#800080",
-        Some(Color::Red) => "#ff0000",
-        _ => "white",
+        Some(color) => color_to_hex(color),
+        _ => String::from("white"),
+    }
+}
+
+fn color_to_hex(color: &Color) -> String {
+    match color {
+        Color::Turquoise => String::from("#40e0d0"),
+        Color::Blue => String::from("#4169e1"),
+        Color::Orange => String::from("#ffa500"),
+        Color::Yellow => String::from("#ffff00"),
+        Color::Green => String::from(" #00ff00"),
+        Color::Purple => String::from("#800080"),
+        Color::Red => String::from("#ff0000"),
     }
 }
 
