@@ -6,6 +6,7 @@ use yew::{html, Callback, Component, ComponentLink, Html, Renderable, ShouldRend
 mod keydown_service;
 use keydown_service::KeydownService;
 
+use stdweb::traits::IKeyboardEvent;
 use stdweb::web::event::KeyDownEvent;
 
 const BOARD_WIDTH: usize = 10;
@@ -18,10 +19,12 @@ pub struct App {
     keydown_job: Option<Box<dyn Task>>,
 }
 
+type Position = (usize, usize, usize, usize);
+
 #[derive(Serialize, Deserialize, Clone)]
 struct Piece {
     color: Color,
-    position: (usize, usize, usize, usize),
+    position: Position,
 }
 
 impl Piece {
@@ -38,7 +41,7 @@ impl Piece {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone)]
+#[derive(Serialize, Deserialize, Clone, Copy)]
 enum Color {
     Turquoise,
     Blue,
@@ -73,7 +76,7 @@ type Board = Vec<Cell>;
 #[derive(Serialize, Deserialize)]
 pub struct State {
     board: Board,
-    current_piece: Option<Piece>,
+    current_piece: Piece,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -88,6 +91,20 @@ pub enum Msg {
     HandleKeyDown(KeyDownEvent),
 }
 
+#[derive(Debug)]
+enum Direction {
+    Up,
+    Down,
+    Left,
+    Right,
+}
+
+#[derive(Debug)]
+enum GameEvent {
+    MoveCurrentPiece(Direction),
+    NoOP,
+}
+
 impl Component for App {
     type Message = Msg;
     type Properties = ();
@@ -95,7 +112,7 @@ impl Component for App {
     fn create(_: Self::Properties, mut link: ComponentLink<Self>) -> Self {
         let state = State {
             board: init_board(),
-            current_piece: Some(Piece::new()),
+            current_piece: Piece::new(),
         };
         let app = App {
             state,
@@ -108,27 +125,98 @@ impl Component for App {
     }
 
     fn update(&mut self, msg: Self::Message) -> ShouldRender {
-        info!("Update!");
         match msg {
             Msg::ListenKeydown => {
                 let handle = self.keydown_service.spawn(self.keydown_cb.clone());
                 self.keydown_job = Some(Box::new(handle));
-            },
-            Msg::HandleKeyDown(_) => {
-                info!("on key down from rust!");
+            }
+            Msg::HandleKeyDown(event) => {
+                info!("{}", event.key());
+                match decode_event(event) {
+                    GameEvent::MoveCurrentPiece(direction) => {
+                        self.state.current_piece.position = attempt_move(
+                            &self.state.board,
+                            &self.state.current_piece.position,
+                            direction,
+                        );
+                    }
+                    _ => {}
+                }
             }
         }
         true
     }
 }
 
+fn attempt_move(board: &Board, piece_position: &Position, direction: Direction) -> Position {
+    if move_is_legal(board, &piece_position, &direction) {
+        calculate_new_position(piece_position, direction)
+    } else {
+        *piece_position
+    }
+}
+
+fn move_is_legal(board: &Board, position: &Position, direction: &Direction) -> bool {
+    let (w, x, y, z) = *position;
+
+    for cell in &[w, x, y, z] {
+        match (*cell, direction) {
+            // out of bounds cases
+            (index, Direction::Up) if index < BOARD_WIDTH => return false,
+            (index, Direction::Down) if index > BOARD_WIDTH * (BOARD_HEIGHT - 1) => return false,
+            (index, Direction::Left) if index % BOARD_WIDTH == 0 => return false,
+            (index, Direction::Right) if (index + 1) % BOARD_WIDTH == 0 => return false,
+            // collision cases
+            (index, Direction::Up) if board[index - BOARD_WIDTH].color.is_some() => return false,
+            (index, Direction::Down) if board[index + BOARD_WIDTH].color.is_some() => return false,
+            (index, Direction::Left) if board[index - 1].color.is_some() => return false,
+            (index, Direction::Right) if board[index + 1].color.is_some() => return false,
+            _ => {}
+        }
+    }
+    true
+}
+
+fn calculate_new_position(piece_position: &Position, direction: Direction) -> Position {
+    let (w, x, y, z) = *piece_position;
+    match direction {
+        Direction::Down => (
+            w + BOARD_WIDTH,
+            x + BOARD_WIDTH,
+            y + BOARD_WIDTH,
+            z + BOARD_WIDTH,
+        ),
+        Direction::Up => (
+            w - BOARD_WIDTH,
+            x - BOARD_WIDTH,
+            y - BOARD_WIDTH,
+            z - BOARD_WIDTH,
+        ),
+        Direction::Left => (w - 1, x - 1, y - 1, z - 1),
+        Direction::Right => (w + 1, x + 1, y + 1, z + 1),
+    }
+}
+
+fn decode_event(event: KeyDownEvent) -> GameEvent {
+    match &event.key()[..] {
+        "a" => GameEvent::MoveCurrentPiece(Direction::Left),
+        "s" => GameEvent::MoveCurrentPiece(Direction::Down),
+        "d" => GameEvent::MoveCurrentPiece(Direction::Right),
+        "w" => GameEvent::MoveCurrentPiece(Direction::Up),
+        _ => GameEvent::NoOP,
+    }
+}
+
 fn init_board() -> Board {
-    vec![Cell { color: None }; BOARD_WIDTH * BOARD_HEIGHT]
+    let mut board = vec![Cell { color: None }; BOARD_WIDTH * BOARD_HEIGHT];
+    board[232] = Cell {
+        color: Some(Color::Red),
+    };
+    board
 }
 
 impl Renderable<App> for App {
     fn view(&self) -> Html<Self> {
-        info!("rendered!");
         html! {
            <div class="app">
              { view_state( &self.state) }
@@ -140,15 +228,16 @@ impl Renderable<App> for App {
 fn view_state(state: &State) -> Html<App> {
     html! {
         <div class="board">
-          { for state.board.iter().enumerate().map(|cell| view_cell(cell, state.current_piece.as_ref())) }
+          { for state.board.iter().enumerate().map(|cell| view_cell(cell, &state.current_piece)) }
         </div>
     }
 }
 
-fn view_cell((index, cell): (usize, &Cell), current_piece: Option<&Piece>) -> Html<App> {
-    let color = match current_piece {
-        Some(piece) if piece.occupies_cell(index) => piece.color.to_hex(),
-        _ => cell_color(cell),
+fn view_cell((index, cell): (usize, &Cell), current_piece: &Piece) -> Html<App> {
+    let color = if current_piece.occupies_cell(index) {
+        current_piece.color.to_hex()
+    } else {
+        cell_color(cell)
     };
 
     html! {
