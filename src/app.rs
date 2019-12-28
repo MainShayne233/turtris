@@ -6,7 +6,6 @@ use yew::{html, Callback, Component, ComponentLink, Html, Renderable, ShouldRend
 mod keydown_service;
 use keydown_service::KeydownService;
 
-use stdweb::traits::IKeyboardEvent;
 use stdweb::web::event::KeyDownEvent;
 
 const BOARD_WIDTH: usize = 10;
@@ -16,7 +15,7 @@ pub struct App {
     state: State,
     keydown_service: KeydownService,
     keydown_cb: Callback<KeyDownEvent>,
-    keydown_job: Option<Box<Task>>,
+    keydown_job: Option<Box<dyn Task>>,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -87,7 +86,6 @@ struct Entry {
 pub enum Msg {
     ListenKeydown,
     HandleKeyDown(KeyDownEvent),
-    Nope,
 }
 
 impl Component for App {
@@ -116,10 +114,9 @@ impl Component for App {
                 let handle = self.keydown_service.spawn(self.keydown_cb.clone());
                 self.keydown_job = Some(Box::new(handle));
             },
-            Msg::HandleKeyDown(e) => {
+            Msg::HandleKeyDown(_) => {
                 info!("on key down from rust!");
             }
-            _ => {}
         }
         true
     }
