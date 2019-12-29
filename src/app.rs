@@ -6,6 +6,7 @@ use yew::{html, Callback, Component, ComponentLink, Html, Renderable, ShouldRend
 mod keydown_service;
 use keydown_service::KeydownService;
 
+use crate::stdweb::unstable::TryInto;
 use stdweb::traits::IKeyboardEvent;
 use stdweb::web::event::KeyDownEvent;
 
@@ -29,9 +30,37 @@ struct Piece {
 
 impl Piece {
     pub fn new() -> Self {
-        Piece {
-            color: Color::Yellow,
-            position: (4, 5, 14, 15),
+        // using JS because rand doesn't play well with wasm lol
+        let random_js_number = js! { return Math.floor(Math.random() * 7) };
+        match random_js_number.try_into().unwrap() {
+            0 => Piece {
+                color: Color::Yellow,
+                position: (4, 5, 14, 15),
+            },
+            1 => Piece {
+                color: Color::Green,
+                position: (14, 15, 5, 6)
+            },
+            2 => Piece {
+                color: Color::Red,
+                position: (4, 5, 15, 16)
+            },
+            3 => Piece {
+                color: Color::Purple,
+                position: (5, 14, 15, 16)
+            },
+            4 => Piece {
+                color: Color::Orange,
+                position: (14, 15, 16, 6)
+            },
+            5 => Piece {
+                color: Color::Blue,
+                position: (4, 14, 15, 16)
+            },
+            _ => Piece {
+                color: Color::Turquoise,
+                position: (4, 14, 24, 34),
+            },
         }
     }
 
@@ -102,6 +131,7 @@ enum Direction {
 #[derive(Debug)]
 enum GameEvent {
     MoveCurrentPiece(Direction),
+    PlaceCurrentPiece,
     NoOP,
 }
 
@@ -140,7 +170,16 @@ impl Component for App {
                             direction,
                         );
                     }
-                    _ => {}
+                    GameEvent::PlaceCurrentPiece => {
+                        let (w, x, y, z) = self.state.current_piece.position;
+                        for cell in &[w, x, y, z] {
+                            self.state.board[*cell] = Cell {
+                                color: Some(self.state.current_piece.color),
+                            }
+                        }
+                        self.state.current_piece = Piece::new()
+                    }
+                    GameEvent::NoOP => {}
                 }
             }
         }
@@ -203,6 +242,7 @@ fn decode_event(event: KeyDownEvent) -> GameEvent {
         "s" => GameEvent::MoveCurrentPiece(Direction::Down),
         "d" => GameEvent::MoveCurrentPiece(Direction::Right),
         "w" => GameEvent::MoveCurrentPiece(Direction::Up),
+        "p" => GameEvent::PlaceCurrentPiece,
         _ => GameEvent::NoOP,
     }
 }
