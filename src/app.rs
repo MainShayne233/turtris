@@ -3,6 +3,8 @@ use serde_derive::{Deserialize, Serialize};
 use yew::services::Task;
 use yew::{html, Callback, Component, ComponentLink, Html, Renderable, ShouldRender};
 
+use std::convert::TryFrom;
+
 mod keydown_service;
 use keydown_service::KeydownService;
 
@@ -22,6 +24,28 @@ pub struct App {
 
 type Position = (usize, usize, usize, usize);
 
+type TheoritcalPosition = (i16, i16, i16, i16);
+
+fn position_to_theoritical(position: Position) -> TheoritcalPosition {
+    let (w, x, y, z) = position;
+    (
+        i16::try_from(w).unwrap(),
+        i16::try_from(x).unwrap(),
+        i16::try_from(y).unwrap(),
+        i16::try_from(z).unwrap(),
+    )
+}
+
+fn position_from_theoritical(theoritcal: TheoritcalPosition) -> Position {
+    let (w, x, y, z) = theoritcal;
+    (
+        usize::try_from(w).unwrap(),
+        usize::try_from(x).unwrap(),
+        usize::try_from(y).unwrap(),
+        usize::try_from(z).unwrap(),
+    )
+}
+
 #[derive(Serialize, Deserialize, Clone)]
 struct Piece {
     color: Color,
@@ -31,31 +55,33 @@ struct Piece {
 impl Piece {
     pub fn new() -> Self {
         // using JS because rand doesn't play well with wasm lol
-        let random_js_number = js! { return Math.floor(Math.random() * 7) };
-        match random_js_number.try_into().unwrap() {
+        let random_js_number: usize = js! { return Math.floor(Math.random() * 7) }
+            .try_into()
+            .unwrap();
+        match random_js_number {
             0 => Piece {
                 color: Color::Yellow,
                 position: (4, 5, 14, 15),
             },
             1 => Piece {
                 color: Color::Green,
-                position: (14, 15, 5, 6)
+                position: (14, 15, 5, 6),
             },
             2 => Piece {
                 color: Color::Red,
-                position: (4, 5, 15, 16)
+                position: (4, 5, 15, 16),
             },
             3 => Piece {
                 color: Color::Purple,
-                position: (5, 14, 15, 16)
+                position: (5, 14, 15, 16),
             },
             4 => Piece {
                 color: Color::Orange,
-                position: (14, 15, 16, 6)
+                position: (14, 15, 16, 6),
             },
             5 => Piece {
                 color: Color::Blue,
-                position: (4, 14, 15, 16)
+                position: (4, 14, 15, 16),
             },
             _ => Piece {
                 color: Color::Turquoise,
@@ -171,7 +197,10 @@ impl Component for App {
                             direction,
                         );
                     }
-                    GameEvent::RotateCurrentPiece => {}
+                    GameEvent::RotateCurrentPiece => {
+                        self.state.current_piece.position =
+                            attempt_rotate(&self.state.board, &self.state.current_piece.position);
+                    }
                     GameEvent::PlaceCurrentPiece => {
                         let (w, x, y, z) = self.state.current_piece.position;
                         for cell in &[w, x, y, z] {
@@ -190,49 +219,112 @@ impl Component for App {
 }
 
 fn attempt_move(board: &Board, piece_position: &Position, direction: Direction) -> Position {
-    if move_is_legal(board, &piece_position, &direction) {
-        calculate_new_position(piece_position, direction)
+    let new_position = calculate_new_position(piece_position, direction);
+    if move_is_legal(board, &piece_position, &new_position) {
+        position_from_theoritical(new_position)
     } else {
         *piece_position
     }
 }
 
-fn move_is_legal(board: &Board, position: &Position, direction: &Direction) -> bool {
-    let (w, x, y, z) = *position;
+fn attempt_rotate(board: &Board, piece_position: &Position) -> Position {
+    let new_position = calculate_rotation(piece_position);
+    if move_is_legal(board, &piece_position, &new_position) {
+        position_from_theoritical(new_position)
+    } else {
+        *piece_position
+    }
+}
 
-    for cell in &[w, x, y, z] {
-        match (*cell, direction) {
-            // out of bounds cases
-            (index, Direction::Up) if index < BOARD_WIDTH => return false,
-            (index, Direction::Down) if index > BOARD_WIDTH * (BOARD_HEIGHT - 1) => return false,
-            (index, Direction::Left) if index % BOARD_WIDTH == 0 => return false,
-            (index, Direction::Right) if (index + 1) % BOARD_WIDTH == 0 => return false,
-            // collision cases
-            (index, Direction::Up) if board[index - BOARD_WIDTH].color.is_some() => return false,
-            (index, Direction::Down) if board[index + BOARD_WIDTH].color.is_some() => return false,
-            (index, Direction::Left) if board[index - 1].color.is_some() => return false,
-            (index, Direction::Right) if board[index + 1].color.is_some() => return false,
+fn move_is_legal(
+    board: &Board,
+    old_position: &Position,
+    new_position: &TheoritcalPosition,
+) -> bool {
+    let (old_w, old_x, old_y, old_z) = *old_position;
+    let (new_w, new_x, new_y, new_z) = *new_position;
+
+    for (old, new) in &[
+        (old_w, new_w),
+        (old_x, new_x),
+        (old_y, new_y),
+        (old_z, new_z),
+    ] {
+        match (*old, *new) {
+            // top and bottom bounds
+            (_, new) if new < 0 || new > 239 => return false,
+            // right bound
+            (old, new) if (old + 1) % 10 == 0 && new % 10 == 0 => return false,
+            // left bound
+            (old, new) if old % 10 == 0 && (new + 1) % 10 == 0 => return false,
+            // cell is taken
+            (_, new) if board[usize::try_from(new).unwrap()].color.is_some() => return false,
             _ => {}
         }
     }
     true
 }
 
-fn calculate_new_position(piece_position: &Position, direction: Direction) -> Position {
-    let (w, x, y, z) = *piece_position;
+fn calculate_rotation(piece_position: &Position) -> TheoritcalPosition {
+    let (w, x, y, z) = position_to_theoritical(*piece_position);
+    let cells = &[w, x, y, z];
+    let horizontal_adjust: i16 = cells.iter().map(|v| v % 10).min().unwrap();
+    let vertical_adjust: i16 = cells.iter().map(|v| v / 10).min().unwrap();
+    let ((w, x, y, z), additional_adjust) = match (
+        w - horizontal_adjust - vertical_adjust * 10,
+        x - horizontal_adjust - vertical_adjust * 10,
+        y - horizontal_adjust - vertical_adjust * 10,
+        z - horizontal_adjust - vertical_adjust * 10,
+    ) {
+        // yellow
+        (0, 1, 10, 11) => ((0, 1, 10, 11), 0),
+        // red
+        (0, 1, 11, 12) => ((1, 10, 11, 20), 0),
+        (1, 10, 11, 20) => ((0, 1, 11, 12), 0),
+        // green
+        (10, 11, 1, 2) => ((0, 10, 11, 21), 0),
+        (0, 10, 11, 21) => ((10, 11, 1, 2), 0),
+        // purple
+        (1, 10, 11, 12) => ((1, 11, 12, 21), 0),
+        (0, 10, 11, 20) => ((9, 10, 11, 20), 0),
+        (0, 1, 2, 11) => ((1, 10, 11, 21), -10),
+        (1, 10, 11, 21) => ((1, 10, 11, 12), 0),
+        // orange
+        (10, 11, 12, 2) => ((1, 11, 21, 22), 0),
+        (0, 10, 20, 21) => ((10, 11, 12, 20), -1),
+        (0, 1, 2, 10) => ((1, 2, 12, 22), -10),
+        (0, 1, 11, 21) => ((10, 11, 12, 2), -1),
+        // blue
+        (0, 10, 11, 12) => ((1, 2, 11, 21), 0),
+        (0, 1, 10, 20) => ((0, 1, 2, 12), -1),
+        (0, 1, 2, 12) => ((2, 12, 21, 22), 0),
+        (1, 11, 20, 21) => ((0, 10, 11, 12), -1),
+        // turquoise
+        (0, 10, 20, 30) => ((0, 1, 2, 3), 9),
+        (0, 1, 2, 3) => ((0, 10, 20, 30), -9),
+        (adjusted_w, adjusted_x, adjusted_y, adjusted_z) => {
+            info!(
+                "{} {} {} {}",
+                adjusted_w, adjusted_x, adjusted_y, adjusted_z
+            );
+            ((adjusted_w, adjusted_x, adjusted_y, adjusted_z), 0)
+        }
+    };
+
+    (
+        w + horizontal_adjust + vertical_adjust * 10 + additional_adjust,
+        x + horizontal_adjust + vertical_adjust * 10 + additional_adjust,
+        y + horizontal_adjust + vertical_adjust * 10 + additional_adjust,
+        z + horizontal_adjust + vertical_adjust * 10 + additional_adjust,
+    )
+}
+
+fn calculate_new_position(piece_position: &Position, direction: Direction) -> TheoritcalPosition {
+    let (w, x, y, z) = position_to_theoritical(*piece_position);
+    let width = i16::try_from(BOARD_WIDTH).unwrap();
     match direction {
-        Direction::Down => (
-            w + BOARD_WIDTH,
-            x + BOARD_WIDTH,
-            y + BOARD_WIDTH,
-            z + BOARD_WIDTH,
-        ),
-        Direction::Up => (
-            w - BOARD_WIDTH,
-            x - BOARD_WIDTH,
-            y - BOARD_WIDTH,
-            z - BOARD_WIDTH,
-        ),
+        Direction::Down => (w + width, x + width, y + width, z + width),
+        Direction::Up => (w - width, x - width, y - width, z - width),
         Direction::Left => (w - 1, x - 1, y - 1, z - 1),
         Direction::Right => (w + 1, x + 1, y + 1, z + 1),
     }
