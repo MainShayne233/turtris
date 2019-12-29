@@ -1,6 +1,8 @@
 #![recursion_limit = "512"]
 #[macro_use]
 extern crate stdweb;
+// app weirdly runs out of memory w/o this?
+extern crate rand;
 
 mod app;
 mod utils;

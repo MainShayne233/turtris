@@ -131,6 +131,7 @@ enum Direction {
 #[derive(Debug)]
 enum GameEvent {
     MoveCurrentPiece(Direction),
+    RotateCurrentPiece,
     PlaceCurrentPiece,
     NoOP,
 }
@@ -170,6 +171,7 @@ impl Component for App {
                             direction,
                         );
                     }
+                    GameEvent::RotateCurrentPiece => {}
                     GameEvent::PlaceCurrentPiece => {
                         let (w, x, y, z) = self.state.current_piece.position;
                         for cell in &[w, x, y, z] {
@@ -243,6 +245,7 @@ fn decode_event(event: KeyDownEvent) -> GameEvent {
         "d" => GameEvent::MoveCurrentPiece(Direction::Right),
         "w" => GameEvent::MoveCurrentPiece(Direction::Up),
         "p" => GameEvent::PlaceCurrentPiece,
+        " " => GameEvent::RotateCurrentPiece,
         _ => GameEvent::NoOP,
     }
 }
